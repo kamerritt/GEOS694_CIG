@@ -1,3 +1,5 @@
+# Import packages
+
 import numpy as np
 import math
 import pandas as pd
@@ -8,109 +10,124 @@ from matplotlib import dates, rcParams, colormaps, colors
 #import colorcet as cc
 from obspy.clients.fdsn import Client
 from obspy import Stream, Trace, UTCDateTime, read
-#from compute_metrics import compute_metrics, process_waveform
-#from waveform_collection import gather_waveforms
-#from scipy.signal import spectrogram, medfilt
-#from matplotlib.patches import Rectangle
 import scipy.integrate as integrate
 from geopy.distance import geodesic as GD
-#from obspy.signal.trigger import classic_sta_lta, recursive_sta_lta, plot_trigger
-#from scipy import stats
 
-
-#%% user input
-#TOP_DIR = '/Users/dfee/Documents/AVO/shishaldin/2023/'
-#MSEED_DIR = f'{TOP_DIR}mseed/'
-#chron_path = f'{TOP_DIR}Shishaldin_2023_chronology_review.xlsx'
-
-#SVDIR = '/Users/dfee/Documents/AVO/shishaldin/2023/figs/seis_inf_plume/'
 SVDIR = '/Users/kamerritt/Desktop/Shishaldin/energy_calcs/'
 
 TOP_DIR = '/Users/kamerritt/Documents/'
 MSEED_DIR = '/Users/kamerritt/PycharmProjects/shishaldin_research/'
-chron_path = f'{MSEED_DIR}Shishaldin_2023_chronology_submitted.xlsx'
 
-# sta/lta parameters
+# STA/LTA parameters
 STA_WINDOW = 5
 LTA_WINDOW = 60
 THRESH_ON = 10.0
 THRESH_OFF = .5
 
-LOAD_MSEED = True
-
-FONT_S = 14
-rcParams.update({'font.size': FONT_S})
-
-SOURCE = 'IRIS'
+# Metadata 
 NET = 'AV'
 LOC = ''
-CHAN = 'BHZ,BDF'
-#SEIS_STA = 'SSLS'
+CHAN = 'BHZ'
+SEIS_STA = 'SSLS'
 
-dict_keys = ['Event 1 - 2020', 'Event 2 - 2020', 'Event 3 - 2020' 'Event 1', 'Event 2', 'Event 3', 'Event 4', 'Event 5',
-             'Event 6', 'Event 8', 'Event 10',
-             'Event 11', 'Event 12', 'Event 13']
+LOAD_MSEED = True
+FONT_S = 16
+rcParams.update({'font.size': FONT_S})
+
+client = Client('IRIS')
+
+# Event labels, excluding Events 7 and 9 due to windy/noisy infrasound
+dict_keys = ['Event 1', 'Event 2', 'Event 3', 'Event 4', 'Event 5', 'Event 6', 
+             'Event 8', 'Event 10', 'Event 11', 'Event 12', 'Event 13']
 dict = dict.fromkeys(dict_keys)
 
-evt_num = [1,2,3,4,5,6,7,8,9,10,11,12,13]
-#evt_num = [2,3]
-#evt_num = [191, 192, 193, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]
+# Event numbers
+evt_num = [1, 2, 3, 4, 5, 6, 8, 10, 11, 12, 13]
 
-# select timescale: utc or dr
+# Start and end times for all events (excluding 7 and 9)
+starttimes = ['2023-7-14T05:31:41', '2023-7-16T00:08:05','2023-7-18T09:17:02', 
+              '2023-7-22T13:17:10', '2023-7-26T09:26:45', '2023-8-04T01:24:52', 
+              '2023-8-25T13:00:49', '2023-9-15T23:04:00', '2023-9-24T20:38:31', 
+              '2023-10-03T03:36:54','2023-11-03T02:57:09']
+
+endtimes = ['2023-7-14T11:25:12', '2023-7-16T07:20:13', '2023-7-18T16:50:43',
+            '2023-7-23T08:32:53', '2023-7-26T19:10:00', '2023-8-04T16:35:32',
+            '2023-8-26T02:17:26', '2023-9-16T05:28:59', '2023-9-25T14:30:38',
+            '2023-10-03T16:22:25', '2023-11-03T15:02:08']
+
+# Select timescale: 'utc' or 'dr'
 timescale = 'utc'
 
 # Define time to read data in before RSAM peak
-START_OFF = 10 * 3600 #30
-TIME_END = 10 * 3600 #15
+START_OFF = 10 * 3600 
+TIME_END = 10 * 3600 
 
 FILT = [1, 10]
 
-# seismic energy parameters
-f = 2  # J&A
-#r = 6000
+# Seismic energy parameters from Johnson & Aster (2005):
+f = 2  
 rho_e = 2000
-c_e = 1400  # Gestrich et al
-Q = 50  # Gestrich et al
+# Chosen following Gestrich et al. (2020):
+c_e = 1400  
+Q = 50  
 VLATLON = (54.7554, -163.9711)
 
 SAVE = False
 
+# Filtering out regional earthquakes for Events 2 and 6
+regional_eqs = {2: [(UTCDateTime('2023-07-16T06:48:55'), 
+                     UTCDateTime('2023-07-16T06:50:38'))],
 
-# LW = 0.9
-# MS = 30 # scatter plot marker size
-# olap = 0.5
-# SPECWIN = 50
-# spec_yl =[.1, 10]
-# inf_co = 'gray'
-# seis_co = 'black'
+                6: [(UTCDateTime('2023-08-03T19:34:19'), 
+                     UTCDateTime('2023-08-03T19:36:29'))]}
 
-rcParams.update({'font.size': 14})
+#%% Function(s)
 
-#times when regional eqs occur to filter out
-regional_eqs = {2: [(UTCDateTime('2023-07-16T06:48:55'), UTCDateTime('2023-07-16T06:50:38'))],
-                6: [(UTCDateTime('2023-08-03T19:34:19'), UTCDateTime('2023-08-03T19:36:29'))],
-                7: [(UTCDateTime('2023-08-14T22:13:30'), UTCDateTime('2023-08-14T22:15:38')),
-                    (UTCDateTime('2023-08-14T22:16:13'), UTCDateTime('2023-08-14T22:17:15'))]}
+"""
+Metadata for AV.SSLS.BHZ
 
-#%% function to calculate seismic energy
+NET = 'AV'
+LOC = ''
+CHAN = 'BHZ,BDF'
+SEIS_STA = 'SSLS'
+"""
+def read_in_data(NET, SEIS_STA, LOC, CHAN, STARTTIME, ENDTIME):
+     st = client.get_waveforms(network=NET, startion=SEIS_STA, location=LOC, 
+                               channel=CHAN, starttime=STARTTIME, 
+                               endtime=ENDTIME, attach_response=True)
+     
+     inv = client.get_stations(network=NET, station=SEIS_STA,
+                              channel=CHAN, level="response")
+     
+     for tr in st:
+        coords = inv.get_coordinates(tr.id)
+        tr.stats.longitude = coords['longitude']
+        tr.stats.latitude = coords['latitude']
+        tr.stats.elevation = coords['elevation']
+        print(f"Event {evt_tmp}")
+        print(st_seis)
 
-#r: source-receiver distance
-#rho_earth: volcano density
-#c_earth: fixed p-wave velocity
-#A: attenuation factor
-#S: seismic site response
-#U: particle velocity
+     tr.filter('bandpass', freqmin=FILT[0], freqmax=FILT[1], corners=2, 
+               zerophase=True)
+     tr.taper(max_percentage=0.05, type='hann')
+     tr.trim(starttime=UTCDateTime(rsam_start), endtime=UTCDateTime(rsam_end))
+
+
+"""
+Seismic energy equation parameters from Johnson and Aster (2005):
+r: Source-receiver distance
+rho_earth: Volcano material density
+c_earth: Fixed p-wave velocity
+A: Attenuation factor
+S: Seismic site response
+U: Particle velocity
+"""
 def calculate_seismic_energy(r, rho_earth, c_earth, A, S_sq, U_sq, dt):
-    int = integrate.trapezoid(S_sq*U_sq, dx=dt)
-    scalar = 2*math.pi*(r**2)*rho_earth*c_earth*(1/A)
+    int = integrate.trapezoid(S_sq * U_sq, dx=dt)
+    scalar = 2 * math.pi * (r ** 2) * rho_earth * c_earth * (1 / A)
     E_seismic = scalar * int
 
     return E_seismic
-#%% read in chronology
-
-#colorcode = pd.read_excel(chron_path, sheet_name="ColorCode")
-evtsum = pd.read_excel(chron_path, sheet_name="EventSummary")
-
 
 # loop over the events in evt_num
 ct=0

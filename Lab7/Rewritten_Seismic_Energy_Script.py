@@ -83,7 +83,6 @@ VLATLON = (54.7554, -163.9711)
 
 SAVE = False
 
-# Filtering out regional earthquakes for Events 2 and 6
 regional_eqs = {2: [(UTCDateTime('2023-07-16T06:48:55'), 
                      UTCDateTime('2023-07-16T06:50:38'))],
 
@@ -179,4 +178,5 @@ if __name__ == '__main__':
     
     for evt_tmp, starttime, endtime in zip(evt_num, starttimes, endtimes):
         SeismicEnergy.create_traces(self, NET, CHAN, SEIS_STA, starttime, endtime)
-        if 
+        if evt_tmp in regional_eqs:
+            SeismicEnergy.remove_regional_eqs(self)

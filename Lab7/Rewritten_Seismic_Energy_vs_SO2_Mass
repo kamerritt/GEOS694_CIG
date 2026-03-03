@@ -103,28 +103,55 @@ SEIS_STA = 'SSLS'
 
 
 class SeismicEnergy():
+    trace = []
+    time = []
     data = []
     energy = []
-    def create_traces(evt_tmp, NET, SEIS_STA, LOC, CHAN, STARTTIME, ENDTIME):
-        st = client.get_waveforms(network=NET, startion=SEIS_STA, location=LOC, 
-                                channel=CHAN, starttime=STARTTIME, 
-                                endtime=ENDTIME, attach_response=True)
+
+    def __init__(self, network, location, channel, station, starttime, endtime):
+        self.network = network
+        self.location = location
+        self.channel = channel
+        self.station = station
+        self.starttime = starttime
+        self.endtime = endtime
+
+    def create_traces(self, network, location, channel, station, starttime, endtime):
+        st = client.get_waveforms(network=network, station=station, 
+                                location=location, channel=channel, 
+                                starttime=starttime, endtime=endtime, 
+                                attach_response=True)
         
-        inv = client.get_stations(network=NET, station=SEIS_STA,
-                                channel=CHAN, level="response")
+        inv = client.get_stations(network=network, station=station,
+                                channel=channel, level="response")
         
         for tr in st:
             coords = inv.get_coordinates(tr.id)
             tr.stats.longitude = coords['longitude']
             tr.stats.latitude = coords['latitude']
             tr.stats.elevation = coords['elevation']
-            print(f"Event {evt_tmp}")
-            print(st)
 
-        tr.filter('bandpass', freqmin=FILT[0], freqmax=FILT[1], corners=2, 
+        tr_filt = tr.filter('bandpass', freqmin=FILT[0], freqmax=FILT[1], corners=2, 
                 zerophase=True)
-        tr.taper(max_percentage=0.05, type='hann')
+        tr_taper = tr_filt.taper(max_percentage=0.05, type='hann')
+         
+        self.trace = tr_taper
+        self.time = tr_taper.times
+        self.data = tr_taper.data
+    
+    def remove_regional_eqs(self, eq_start, eq_end):
+        tr_data_time = self.time('utcdatetime')
+        mask = np.logical_and(tr_data_time >= eq_start, tr_data_time 
+                                  <= eq_end)
+        self.data[mask] = np.nan
 
+    def remove_nans(self):
+        nan_free_data = []
+        valid_mask = ~np.isnan(self.data)
+        data = self.data[valid_mask]
+
+        self.data = data
+        attenuation = math.exp((-math.pi * f * r) / (c_e * Q))
 
     """
     Seismic energy equation parameters from Johnson and Aster (2005):
@@ -135,7 +162,7 @@ class SeismicEnergy():
     S: Seismic site response
     U: Particle velocity
     """
-    def calculate_seismic_energy(r, rho_earth, c_earth, A, S_sq, U_sq, dt):
+    def calculate_seismic_energy(self, r, rho_earth, c_earth, A, S_sq, U_sq, dt):
         int = integrate.trapezoid(S_sq * U_sq, dx=dt)
         scalar = 2 * math.pi * (r ** 2) * rho_earth * c_earth * (1 / A)
         E_seismic = scalar * int

@@ -7,7 +7,7 @@ from obspy.core.trace import Trace
 from obspy.clients.fdsn import Client
 from scipy.signal import spectrogram
 import matplotlib
-matplotlib.use('TkAgg')
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from obspy import read, read_inventory
 from obspy.signal import filter
